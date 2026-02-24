@@ -1,0 +1,6 @@
+# Temp/debug files
+capture_screenshots.js
+screenshot*.png
+assets/ui-*.png
+assets/ui-*.jpg
+assets/sp-*.png

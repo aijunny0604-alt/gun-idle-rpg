@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>총 키우기 - 방치형 RPG</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="game-container">
+
+    <!-- === Canvas + HUD === -->
+    <div id="canvas-wrap">
+      <canvas id="game-canvas"></canvas>
+
+      <div id="hud-overlay">
+        <!-- Top HUD -->
+        <div id="hud-top">
+          <div id="hud-top-left">
+            <div id="level-weapon-row">
+              <span id="level-text">LEVEL 1</span>
+              <span id="weapon-name">권총</span>
+            </div>
+            <div id="exp-row">
+              <span id="exp-label">EXP <span id="exp-percent">0%</span></span>
+              <div id="exp-bar-wrap"><div id="exp-fill"></div></div>
+            </div>
+            <div id="gold-row">
+              <span id="gold-icon">💰</span>
+              <span id="gold-value">0</span>
+            </div>
+          </div>
+          <div id="hud-top-right">
+            <button id="btn-pause">❚❚</button>
+            <div id="auto-fire">⚡ AUTO</div>
+          </div>
+        </div>
+
+        <!-- Bottom HUD -->
+        <div id="hud-bottom">
+          <div id="stage-badge"><span id="stage-info">STAGE 1 — 1/5</span></div>
+          <div id="bars-container">
+            <div class="bar-row">
+              <span class="bar-label">HP</span>
+              <div class="bar-outer hp-bar">
+                <div class="bar-fill" id="hp-fill" style="width:100%"></div>
+                <span class="bar-text" id="hp-text">100/100</span>
+              </div>
+            </div>
+            <div class="bar-row">
+              <span class="bar-label">SD</span>
+              <div class="bar-outer shield-bar">
+                <div class="bar-fill" id="shield-fill" style="width:100%"></div>
+                <span class="bar-text" id="shield-text">30/30</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- === Bottom Panel (Tabs) === -->
+    <div id="bottom-panel">
+      <div id="tab-bar">
+        <button class="tab active" data-tab="upgrades">⚔️ 강화</button>
+        <button class="tab" data-tab="skills">🔮 스킬</button>
+        <button class="tab" data-tab="stats">📊 정보</button>
+      </div>
+      <div id="tab-content">
+        <!-- UPGRADES Tab -->
+        <div id="tab-upgrades" class="tab-pane active">
+          <div class="upgrade-item">
+            <div class="item-icon">🔫</div>
+            <div class="item-info">
+              <div class="item-name"><span id="weapon-label">🔫</span> <span id="weapon-level">Lv.1</span></div>
+              <div class="item-bar-wrap"><div class="item-bar-fill" id="weapon-bar"></div><span class="item-bar-pct" id="weapon-bar-pct">0%</span></div>
+              <div class="item-stats" id="damage-text">DMG: 12 | 12/12</div>
+            </div>
+            <button class="item-btn" id="btn-upgrade">
+              <span class="btn-label">강화</span>
+              <span class="btn-cost" id="upgrade-cost">50G</span>
+            </button>
+          </div>
+          <div class="upgrade-item">
+            <div class="item-icon">🛡️</div>
+            <div class="item-info">
+              <div class="item-name">캐릭터 <span id="char-level">Lv.1</span></div>
+              <div class="item-bar-wrap"><div class="item-bar-fill" id="char-bar"></div><span class="item-bar-pct" id="char-bar-pct">0%</span></div>
+              <div class="item-stats">HP+15 / Shield+5</div>
+            </div>
+            <button class="item-btn green" id="btn-levelup">
+              <span class="btn-label">레벨업</span>
+              <span class="btn-cost" id="levelup-cost">50G</span>
+            </button>
+          </div>
+          <div class="upgrade-item">
+            <div class="item-icon">🧬</div>
+            <div class="item-info">
+              <div class="item-name">진화 트리 <span id="skill-level">Lv.1</span></div>
+              <div class="item-stats">무기 진화 선택</div>
+            </div>
+            <button class="item-btn purple" id="btn-evolution">
+              <span class="btn-label">진화</span>
+              <span class="btn-cost">TREE</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- SKILLS Tab -->
+        <div id="tab-skills" class="tab-pane">
+          <div class="empty-tab">스킬 준비중...</div>
+        </div>
+
+        <!-- STATS Tab -->
+        <div id="tab-stats" class="tab-pane">
+          <div class="stat-row"><span class="stat-label">총 킬수</span><span class="stat-val" id="kills-value">0</span></div>
+          <div class="stat-row"><span class="stat-label">탄약</span><span class="stat-val" id="ammo-text">12/12</span></div>
+          <div class="stat-row"><span class="stat-label">스테이지</span><span class="stat-val" id="stat-stage">1</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Evolution Tree Modal -->
+    <div id="evolution-tree">
+      <div id="tree-header">
+        <span id="tree-title">🧬 총 진화 트리</span>
+        <button id="btn-close-tree">✕</button>
+      </div>
+      <div id="tree-nodes"></div>
+    </div>
+  </div>
+
+  <script src="js/weapon.js?v=2"></script>
+  <script src="js/sprites.js?v=2"></script>
+  <script src="js/effects.js?v=2"></script>
+  <script src="js/bullet.js?v=2"></script>
+  <script src="js/enemy.js?v=2"></script>
+  <script src="js/player.js?v=2"></script>
+  <script src="js/stage.js?v=2"></script>
+  <script src="js/ui.js?v=2"></script>
+  <script src="js/save.js?v=2"></script>
+  <script src="js/game.js?v=2"></script>
+</body>
+</html>
