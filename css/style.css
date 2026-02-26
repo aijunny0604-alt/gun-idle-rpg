@@ -165,7 +165,7 @@ body {
 
 .tab {
   flex: 1; padding: 0;
-  font-size: 11px; font-weight: 900;
+  font-size: 9px; font-weight: 900;
   background: transparent;
   border: none; cursor: pointer;
   color: #4a5568;
@@ -367,6 +367,31 @@ body {
 .evolve-btn-tree.can-evolve {
   border-color: #4caf50; color: #69f0ae; cursor: pointer;
   box-shadow: 0 0 6px rgba(76,175,80,.2);
+}
+
+/* ── Equipment & Rebirth Sections ── */
+.equip-section-title {
+  font-size: 10px; font-weight: 900; color: #78909c;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  padding: 8px 10px 4px;
+  background: #0d1117;
+  border-bottom: 1px solid #1a2744;
+}
+
+.rebirth-header {
+  display: flex; justify-content: space-around;
+  padding: 12px 10px;
+  background: linear-gradient(180deg, #1a0a2a, #0f1923);
+  border-bottom: 1px solid #2a1a4a;
+}
+.rebirth-count, .rebirth-souls {
+  font-size: 13px; font-weight: 900;
+  text-shadow: 0 0 8px rgba(170,68,255,.3);
+}
+.rebirth-info { }
+.rebirth-action {
+  padding: 10px;
+  background: #0d1117;
 }
 
 /* === Scrollbar === */

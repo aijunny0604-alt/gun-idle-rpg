@@ -21,12 +21,14 @@ class UIManager {
     // Weapon upgrade button
     document.getElementById('btn-upgrade').addEventListener('click', () => {
       if (typeof game === 'undefined') return;
+      soundManager.ensureContext();
       const player = game.player;
       const cost = player.weapon.nextUpgradeCost;
       if (player.gold >= cost) {
         player.gold -= cost;
         player.weapon.upgrade();
         this.update(game);
+        soundManager.playUpgrade();
         game.effects.push(new FloatingText(
           player.x, player.y - 80, '강화!', '#44ff44', 16, 40
         ));
@@ -36,6 +38,7 @@ class UIManager {
     // Character levelup button
     document.getElementById('btn-levelup').addEventListener('click', () => {
       if (typeof game === 'undefined') return;
+      soundManager.ensureContext();
       const player = game.player;
       const cost = Math.floor(50 * Math.pow(1.3, player.level - 1));
       if (player.gold >= cost) {
@@ -44,6 +47,7 @@ class UIManager {
         player.hp = Math.min(player.hp + 15, player.maxHp);
         player.maxShield += 5;
         this.update(game);
+        soundManager.playUpgrade();
         game.effects.push(new FloatingText(
           player.x, player.y - 80, 'HP UP!', '#ff8888', 16, 40
         ));
@@ -156,11 +160,12 @@ class UIManager {
     // Stage
     document.getElementById('stage-info').textContent = stage.displayText;
 
-    // HP bar
-    const hpPercent = (player.hp / player.maxHp) * 100;
-    document.getElementById('hp-fill').style.width = hpPercent + '%';
+    // HP bar (with equipment bonus)
+    const effMaxHp = player.effectiveMaxHp;
+    const hpPercent = (player.hp / effMaxHp) * 100;
+    document.getElementById('hp-fill').style.width = Math.min(100, hpPercent) + '%';
     document.getElementById('hp-text').textContent =
-      `${Math.ceil(player.hp)}/${player.maxHp}`;
+      `${Math.ceil(player.hp)}/${effMaxHp}`;
 
     // Shield bar
     const shieldPercent = (player.shield / player.maxShield) * 100;
@@ -213,7 +218,272 @@ class UIManager {
     const statStage = document.getElementById('stat-stage');
     if (statStage) statStage.textContent = stage.stage;
 
+    // DPS display
+    const dpsEl = document.getElementById('dps-value');
+    if (dpsEl) {
+      const dps = Math.floor(player.attackDamage * (1000 / weapon.fireRate));
+      dpsEl.textContent = dps.toLocaleString();
+    }
+
+    // Best combo
+    const comboEl = document.getElementById('combo-value');
+    if (comboEl) comboEl.textContent = player.combo.bestCombo;
+
+    // Skills tab
+    this.renderSkillsTab(player);
+
+    // Equipment tab
+    this.renderEquipTab(player);
+
+    // Rebirth tab
+    this.renderRebirthTab(gameRef);
+
     // Pause button
     document.getElementById('btn-pause').textContent = gameRef.paused ? '▶' : '❚❚';
+  }
+
+  renderSkillsTab(player) {
+    const container = document.getElementById('tab-skills');
+    if (!container) return;
+
+    // Only rebuild if needed (check a flag)
+    const skills = player.skills;
+    let html = '';
+    for (const [id, def] of Object.entries(PASSIVE_SKILLS)) {
+      const lv = skills.getLevel(id);
+      const cost = skills.getUpgradeCost(id);
+      const maxed = lv >= def.maxLevel;
+      const canBuy = player.gold >= cost && !maxed;
+      const effectText = this._getSkillEffectText(id, lv);
+
+      html += `
+        <div class="upgrade-item">
+          <div class="item-icon">${def.icon}</div>
+          <div class="item-info">
+            <div class="item-name">${def.name} <span style="color:#69f0ae">Lv.${lv}</span></div>
+            <div class="item-stats">${def.desc}</div>
+            <div class="item-stats" style="color:#ffd740">${effectText}</div>
+          </div>
+          <button class="item-btn ${maxed ? '' : 'green'} skill-btn" data-skill="${id}" ${!canBuy ? 'disabled' : ''}>
+            <span class="btn-label">${maxed ? 'MAX' : '습득'}</span>
+            <span class="btn-cost">${maxed ? '—' : cost + 'G'}</span>
+          </button>
+        </div>
+      `;
+    }
+    container.innerHTML = html;
+
+    // Bind skill buttons
+    container.querySelectorAll('.skill-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (typeof game === 'undefined') return;
+        soundManager.ensureContext();
+        const skillId = btn.dataset.skill;
+        const cost = skills.getUpgradeCost(skillId);
+        if (player.gold >= cost && skills.canUpgrade(skillId, player.gold)) {
+          player.gold -= cost;
+          skills.upgrade(skillId);
+          soundManager.playUpgrade();
+          game.effects.push(new FloatingText(
+            player.x, player.y - 80, PASSIVE_SKILLS[skillId].name + ' UP!', '#aa44ff', 14, 40
+          ));
+          this.update(game);
+        }
+      });
+    });
+  }
+
+  _getSkillEffectText(id, lv) {
+    if (lv === 0) return '미습득';
+    const skill = PASSIVE_SKILLS[id];
+    const eff = skill.effect(lv);
+    switch (id) {
+      case 'pierce': return `관통 ${eff.pierceCount}회`;
+      case 'vampire': return `킬당 HP +${eff.healOnKill}`;
+      case 'explosive': return `범위 ${eff.explosionRadius}px, ${Math.floor(eff.explosionDmg*100)}% 데미지`;
+      case 'speed': return `속도 x${eff.speedMult.toFixed(2)}, 발사 x${eff.fireRateMult.toFixed(2)}`;
+      case 'critUp': return `크리 확률 ${Math.floor(eff.critChance*100)}%`;
+      case 'goldBonus': return `골드 x${eff.goldMult.toFixed(2)}`;
+      default: return '';
+    }
+  }
+
+  renderEquipTab(player) {
+    const container = document.getElementById('tab-equip');
+    if (!container) return;
+
+    const equip = player.equipment;
+    let html = '';
+
+    // Equipped slots
+    html += '<div class="equip-section-title">장착 중</div>';
+    for (const slot of EQUIP_SLOTS) {
+      const item = equip.equipped[slot];
+      const slotNames = { weapon_mod: '총기 개조', armor: '방탄 조끼', ring: '반지', scope: '조준경', boots: '전투화' };
+      if (item) {
+        const gi = item.gradeInfo;
+        html += `
+          <div class="upgrade-item" style="border-left:3px solid ${gi.color}">
+            <div class="item-icon">${item.icon}</div>
+            <div class="item-info">
+              <div class="item-name" style="color:${gi.color}">${item.displayName}</div>
+              <div class="item-stats" style="color:#ffd740">${item.displayStat}</div>
+            </div>
+            <button class="item-btn unequip-btn" data-slot="${slot}" style="background:#555;border-color:#777">
+              <span class="btn-label">해제</span>
+            </button>
+          </div>`;
+      } else {
+        html += `
+          <div class="upgrade-item" style="opacity:0.4">
+            <div class="item-icon">⬜</div>
+            <div class="item-info">
+              <div class="item-name">${slotNames[slot] || slot}</div>
+              <div class="item-stats">비어있음</div>
+            </div>
+          </div>`;
+      }
+    }
+
+    // Inventory
+    html += `<div class="equip-section-title">인벤토리 (${equip.inventory.length}/${equip.maxInventory})</div>`;
+    if (equip.inventory.length === 0) {
+      html += '<div class="empty-tab">장비가 없습니다. 적을 처치하면 드롭!</div>';
+    } else {
+      // Sort by grade quality desc
+      const gradeOrder = { mythic: 5, legendary: 4, rare: 3, uncommon: 2, common: 1 };
+      const sorted = [...equip.inventory].sort((a, b) => (gradeOrder[b.grade] || 0) - (gradeOrder[a.grade] || 0));
+      for (const item of sorted) {
+        const gi = item.gradeInfo;
+        html += `
+          <div class="upgrade-item" style="border-left:3px solid ${gi.color}">
+            <div class="item-icon">${item.icon}</div>
+            <div class="item-info">
+              <div class="item-name" style="color:${gi.color}">${item.displayName}</div>
+              <div class="item-stats" style="color:#ffd740">${item.displayStat}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <button class="item-btn green equip-inv-btn" data-item-id="${item.id}" style="height:22px;width:50px">
+                <span class="btn-label" style="font-size:9px">장착</span>
+              </button>
+              <button class="item-btn sell-btn" data-item-id="${item.id}" style="height:22px;width:50px;background:#8b0000;border-color:#cc3333">
+                <span class="btn-label" style="font-size:9px">판매</span>
+              </button>
+            </div>
+          </div>`;
+      }
+    }
+
+    container.innerHTML = html;
+
+    // Bind equipment buttons
+    container.querySelectorAll('.equip-inv-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        soundManager.ensureContext();
+        const itemId = parseInt(btn.dataset.itemId);
+        const item = equip.inventory.find(i => i.id === itemId);
+        if (item) {
+          equip.equip(item);
+          soundManager.playUpgrade();
+          this.update(game);
+        }
+      });
+    });
+
+    container.querySelectorAll('.unequip-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        soundManager.ensureContext();
+        equip.unequip(btn.dataset.slot);
+        this.update(game);
+      });
+    });
+
+    container.querySelectorAll('.sell-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        soundManager.ensureContext();
+        const itemId = parseInt(btn.dataset.itemId);
+        const gold = equip.sellItem(itemId);
+        if (gold > 0) {
+          player.gold += gold;
+          soundManager.playCoin();
+          game.screenEffects.push(new FloatingText(180, 300, `+${gold}G 판매!`, '#ffd740', 14, 40));
+          this.update(game);
+        }
+      });
+    });
+  }
+
+  renderRebirthTab(gameRef) {
+    const container = document.getElementById('tab-rebirth');
+    if (!container) return;
+
+    const rm = gameRef.rebirthManager;
+    const stage = gameRef.stageManager.stage;
+    const canRebirth = rm.canRebirth(stage);
+    const soulsWouldGet = rm.calculateSouls(stage, gameRef.player.totalKills);
+
+    let html = `
+      <div class="rebirth-header">
+        <div class="rebirth-count">💀 환생 횟수: <span style="color:#ff88ff">${rm.rebirthCount}</span></div>
+        <div class="rebirth-souls">👻 영혼석: <span style="color:#ddaaff">${rm.totalSouls}</span></div>
+      </div>
+      <div class="rebirth-info">
+        <div class="stat-row"><span class="stat-label">데미지 배율</span><span class="stat-val" style="color:#ff8888">x${rm.permanentBonuses.damageMultiplier.toFixed(2)}</span></div>
+        <div class="stat-row"><span class="stat-label">골드 배율</span><span class="stat-val" style="color:#ffd740">x${rm.permanentBonuses.goldMultiplier.toFixed(2)}</span></div>
+        <div class="stat-row"><span class="stat-label">경험치 배율</span><span class="stat-val" style="color:#69f0ae">x${rm.permanentBonuses.expMultiplier.toFixed(2)}</span></div>
+        <div class="stat-row"><span class="stat-label">시작 골드</span><span class="stat-val" style="color:#ffd740">${rm.permanentBonuses.startGold}G</span></div>
+      </div>
+
+      <div class="rebirth-action">
+        <button class="item-btn purple rebirth-btn" id="btn-rebirth" ${!canRebirth ? 'disabled' : ''} style="width:100%;height:50px">
+          <span class="btn-label" style="font-size:14px">💀 환생하기</span>
+          <span class="btn-cost">${canRebirth ? `+${soulsWouldGet} 영혼석` : `스테이지 ${rm.minStageToRebirth} 필요 (현재 ${stage})`}</span>
+        </button>
+      </div>
+
+      <div class="equip-section-title">👻 영혼석 상점</div>
+    `;
+
+    for (const upgrade of rm.soulUpgrades) {
+      const canBuy = rm.totalSouls >= upgrade.cost;
+      html += `
+        <div class="upgrade-item">
+          <div class="item-icon">👻</div>
+          <div class="item-info">
+            <div class="item-name">${upgrade.name}</div>
+            <div class="item-stats">${upgrade.desc}</div>
+          </div>
+          <button class="item-btn soul-buy-btn" data-upgrade="${upgrade.id}" ${!canBuy ? 'disabled' : ''} style="background:linear-gradient(180deg,#6a1b9a,#4a148c);border-color:#ab47bc">
+            <span class="btn-label">구매</span>
+            <span class="btn-cost">${upgrade.cost}👻</span>
+          </button>
+        </div>
+      `;
+    }
+
+    container.innerHTML = html;
+
+    // Rebirth button
+    const rebirthBtn = document.getElementById('btn-rebirth');
+    if (rebirthBtn) {
+      rebirthBtn.addEventListener('click', () => {
+        if (!canRebirth) return;
+        soundManager.ensureContext();
+        rm.performRebirth(gameRef);
+        this.update(gameRef);
+      });
+    }
+
+    // Soul upgrade buttons
+    container.querySelectorAll('.soul-buy-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        soundManager.ensureContext();
+        const upgradeId = btn.dataset.upgrade;
+        if (rm.buySoulUpgrade(upgradeId)) {
+          soundManager.playUpgrade();
+          this.update(gameRef);
+        }
+      });
+    });
   }
 }

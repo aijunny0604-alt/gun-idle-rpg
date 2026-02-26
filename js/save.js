@@ -10,10 +10,11 @@ class SaveManager {
 
   save(gameRef) {
     const data = {
-      version: 1,
+      version: 2,
       timestamp: Date.now(),
       player: gameRef.player.serialize(),
       stage: gameRef.stageManager.serialize(),
+      rebirth: gameRef.rebirthManager.serialize(),
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -30,7 +31,7 @@ class SaveManager {
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return null;
       const data = JSON.parse(raw);
-      if (data.version !== 1) return null;
+      if (data.version !== 1 && data.version !== 2) return null;
       return data;
     } catch (e) {
       console.warn('Load failed:', e);

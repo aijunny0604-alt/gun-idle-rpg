@@ -1,7 +1,7 @@
 // bullet.js - 총알 시스템 (박진감 강화)
 
 class Bullet {
-  constructor(x, y, angle, speed, damage, size, color) {
+  constructor(x, y, angle, speed, damage, size, color, pierceCount) {
     this.x = x;
     this.y = y;
     this.vx = Math.cos(angle) * speed;
@@ -11,6 +11,8 @@ class Bullet {
     this.color = color || '#ffcc00';
     this.alive = true;
     this.trail = [];
+    this.pierceLeft = pierceCount || 0;
+    this.hitEnemies = new Set();
   }
 
   update(dt, enemies, canvasWidth, cameraX) {
@@ -29,59 +31,68 @@ class Bullet {
 
     for (const enemy of enemies) {
       if (!enemy.alive || enemy.dying) continue;
+      if (this.hitEnemies.has(enemy)) continue;
       const dx = this.x - enemy.x;
       const dy = this.y - (enemy.y - enemy.height / 2);
       if (Math.abs(dx) < enemy.width / 2 + this.size &&
           Math.abs(dy) < enemy.height / 2 + this.size) {
-        const killed = enemy.takeDamage(this.damage);
-        this.alive = false;
 
         if (typeof game !== 'undefined') {
-          const isCrit = Math.random() < 0.12;
+          const player = game.player;
+          const skills = player.skills;
+          const critChance = player.effectiveCritChance;
+          const isCrit = Math.random() < critChance;
           const finalDmg = isCrit ? this.damage * 2 : this.damage;
-          if (isCrit) enemy.takeDamage(this.damage);
+
+          const killed = enemy.takeDamage(finalDmg);
+
+          // Pierce logic
+          this.hitEnemies.add(enemy);
+          if (this.pierceLeft > 0) {
+            this.pierceLeft--;
+          } else {
+            this.alive = false;
+          }
 
           const hitX = this.x;
           const hitY = this.y;
 
-          if (isCrit) {
-            // === CRITICAL HIT - explosive effects ===
+          // Explosion skill
+          const explData = skills.explosionData;
+          if (explData) {
+            game.effects.push(new Explosion(hitX, hitY, explData.explosionRadius));
+            for (const other of enemies) {
+              if (other === enemy || !other.alive || other.dying) continue;
+              const edx = hitX - other.x;
+              const edy = hitY - (other.y - other.height / 2);
+              if (Math.sqrt(edx*edx + edy*edy) < explData.explosionRadius) {
+                other.takeDamage(Math.floor(finalDmg * explData.explosionDmg));
+              }
+            }
+          }
 
-            // Big damage number (starts large, shrinks)
+          if (isCrit) {
+            soundManager.playCritical();
+
             game.effects.push(new FloatingText(
               enemy.x + (Math.random() - 0.5) * 10,
               enemy.y - enemy.height - 15,
               finalDmg + '!',
               '#ff2222', 26, 50
             ));
-
-            // "CRITICAL!" label
             game.effects.push(new FloatingText(
               enemy.x, enemy.y - enemy.height - 35,
               'CRITICAL!',
               '#ffaa00', 16, 40
             ));
-
-            // Strong screen shake
             game.shake(7, 10);
-
-            // Hitstop (freeze frame for impact)
             game.hitstop(4);
-
-            // Screen flash - white
             game.screenEffects.push(new ScreenFlash('#ffffff', 0.35, 5));
-
-            // Crit slash lines (more lines now)
             game.effects.push(new CritSlash(hitX, hitY));
-
-            // Multiple impact rings
             game.effects.push(new ImpactRing(hitX, hitY, 50, '#ff4400', 16));
             game.effects.push(new ImpactRing(hitX, hitY, 30, '#ffcc00', 12));
             game.effects.push(new ImpactRing(hitX, hitY, 20, '#ffffff', 8));
 
-            // (enemy body flashes white via built-in hitFlash in renderZombie)
-
-            // Massive particle burst (25+)
             const critColors = ['#ffffff', '#ffee44', '#ff8800', '#ff4400', '#ffcc00', '#ff2200'];
             for (let i = 0; i < 25; i++) {
               const angle = Math.random() * Math.PI * 2;
@@ -96,33 +107,21 @@ class Bullet {
                 18 + Math.random() * 12
               ));
             }
-
-            // Directional sparks
             game.effects.push(new DirectionalSparks(hitX, hitY, 0));
 
           } else {
-            // === NORMAL HIT - enhanced effects ===
+            soundManager.playHit();
 
-            // Damage number
             game.effects.push(new FloatingText(
               enemy.x + (Math.random() - 0.5) * 18,
               enemy.y - enemy.height - 8,
               '+' + this.damage,
               '#44ff44', 13, 30
             ));
-
-            // Small screen shake on every hit
             game.shake(1.5, 3);
-
-            // Impact ring
             game.effects.push(new ImpactRing(hitX, hitY, 18, '#ffdd44', 8));
-
-            // (enemy body flashes white via built-in hitFlash in renderZombie)
-
-            // Directional sparks (away from bullet direction)
             game.effects.push(new DirectionalSparks(hitX, hitY, 0));
 
-            // Hit spark particles
             for (let i = 0; i < 10; i++) {
               const angle = Math.random() * Math.PI * 2;
               const speed = 2 + Math.random() * 4;
@@ -138,33 +137,61 @@ class Bullet {
           }
 
           if (killed) {
-            // Gold popup
-            game.effects.push(new FloatingText(
-              enemy.x - 8, enemy.y - enemy.height - 22,
-              'G' + enemy.goldReward,
-              '#ffd700', 14, 50
-            ));
+            soundManager.playKill();
+
+            // Combo
+            player.combo.onKill();
+            const comboMult = player.combo.multiplier;
+            const goldMult = skills.goldMult;
+            const finalGold = Math.floor(enemy.goldReward * comboMult * goldMult);
+            const finalExp = Math.floor(enemy.expReward * comboMult);
+
+            // Vampire heal
+            const heal = skills.healOnKill;
+            if (heal > 0) {
+              player.hp = Math.min(player.maxHp, player.hp + heal);
+              game.effects.push(new FloatingText(
+                player.worldX, player.y - 90, '+' + heal + 'HP', '#44ff88', 11, 30
+              ));
+            }
+
+            // Gold coins fly to player
+            const coinCount = Math.min(8, Math.max(2, Math.floor(finalGold / 10)));
+            for (let i = 0; i < coinCount; i++) {
+              game.effects.push(new GoldCoin(
+                enemy.x + (Math.random() - 0.5) * 20,
+                enemy.y - 30 + (Math.random() - 0.5) * 20,
+                player,
+                Math.floor(finalGold / coinCount)
+              ));
+            }
+
+            // Override default rewards with multiplied ones
+            enemy.goldReward = finalGold;
+            enemy.expReward = finalExp;
+
             // EXP popup
             game.effects.push(new FloatingText(
               enemy.x + 14, enemy.y - enemy.height - 16,
-              '+' + enemy.expReward + 'EXP',
+              '+' + finalExp + 'EXP',
               '#88ff88', 12, 45
             ));
 
-            // Strong screen shake on kill
+            // Combo text
+            if (player.combo.count >= 3) {
+              game.effects.push(new FloatingText(
+                enemy.x, enemy.y - enemy.height - 38,
+                player.combo.count + ' COMBO x' + comboMult.toFixed(1),
+                player.combo.comboColor, 13, 40
+              ));
+            }
+
             game.shake(5, 7);
-
-            // Hitstop on kill
             game.hitstop(3);
-
-            // Red screen flash
             game.screenEffects.push(new ScreenFlash('#ff4400', 0.2, 4));
-
-            // Kill impact rings
             game.effects.push(new ImpactRing(enemy.x, enemy.y - 30, 60, '#ff6600', 20));
             game.effects.push(new ImpactRing(enemy.x, enemy.y - 30, 35, '#ffaa00', 14));
 
-            // Death explosion particles (massive burst)
             for (let i = 0; i < 22; i++) {
               const angle = Math.random() * Math.PI * 2;
               const speed = 1.5 + Math.random() * 6;
@@ -180,7 +207,7 @@ class Bullet {
             }
           }
         }
-        break;
+        if (!this.alive) break;
       }
     }
   }

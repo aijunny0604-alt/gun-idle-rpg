@@ -23,6 +23,10 @@ class Player {
     this.unlockedWeapons = { pistol: true };
     this.fireTimer = 0;
 
+    this.skills = new SkillManager();
+    this.combo = new ComboManager();
+    this.equipment = new EquipmentManager();
+
     this.recoilOffset = 0;
     this.muzzleFlash = 0;
     this.isHurt = false;
@@ -37,8 +41,28 @@ class Player {
     this.isShooting = false;
   }
 
+  get effectiveMaxHp() {
+    return this.maxHp + (this.equipment.totalBonuses.maxHp || 0);
+  }
+
+  get effectiveCritChance() {
+    const base = this.skills.critChance;
+    const equipBonus = (this.equipment.totalBonuses.critBonus || 0) / 100;
+    return Math.min(0.8, base + equipBonus);
+  }
+
+  get effectiveSpeed() {
+    const base = this.walkSpeed * this.skills.speedMult;
+    const equipBonus = 1 + (this.equipment.totalBonuses.speedBonus || 0) / 100;
+    return base * equipBonus;
+  }
+
   get attackDamage() {
-    return this.weapon.damage + Math.floor(this.level * 2);
+    const base = this.weapon.damage + Math.floor(this.level * 2);
+    const equipBonus = this.equipment.totalBonuses.damageBonus || 0;
+    const rebirthMult = (typeof game !== 'undefined' && game.rebirthManager)
+      ? game.rebirthManager.permanentBonuses.damageMultiplier : 1;
+    return Math.floor((base + equipBonus) * rebirthMult);
   }
 
   addExp(amount) {
@@ -58,6 +82,7 @@ class Player {
     this.shield = this.maxShield;
     if (typeof game !== 'undefined') {
       game.effects.push(new FloatingText(this.x, this.y - 65, 'LEVEL UP!', '#ffff00', 18, 60));
+      soundManager.playLevelUp();
     }
   }
 
@@ -74,9 +99,9 @@ class Player {
   }
 
   update(dt, enemies) {
-    // Walking (controlled by game.js)
+    // Walking (controlled by game.js) with skill + equip speed bonus
     if (this.isWalking) {
-      this.worldX += this.walkSpeed * (dt / 16);
+      this.worldX += this.effectiveSpeed * (dt / 16);
     }
     this.x = this.worldX;
 
@@ -116,12 +141,16 @@ class Player {
       this.animState = 'idle';
     }
 
-    // Auto fire
+    // Auto fire (with skill speed bonus)
     this.fireTimer -= dt;
+    const effectiveFireRate = this.weapon.fireRate * this.skills.fireRateMult;
     if (this.fireTimer <= 0 && enemies.length > 0) {
       this.fire(enemies);
-      this.fireTimer = this.weapon.fireRate;
+      this.fireTimer = effectiveFireRate;
     }
+
+    // Combo timer
+    this.combo.update(dt);
 
     if (this.shield < this.maxShield) {
       this.shield = Math.min(this.maxShield, this.shield + 0.01 * dt);
@@ -133,6 +162,7 @@ class Player {
 
     this.recoilOffset = 6;
     this.muzzleFlash = 6;
+    soundManager.playGunshot(this.weapon.id);
 
     // Gun tip position (right side of rendered sprite)
     const gunTipX = this.x + this.width * 0.55 - this.recoilOffset;
@@ -148,7 +178,8 @@ class Player {
           this.weapon.bulletSpeed,
           this.attackDamage,
           this.weapon.bulletSize,
-          this.weapon.color
+          this.weapon.color,
+          this.skills.pierceCount
         ));
 
         game.effects.push(new ShellCasing(gunTipX - 12, gunTipY - 4));
@@ -179,6 +210,9 @@ class Player {
       weapon: this.weapon.serialize(),
       unlockedWeapons: this.unlockedWeapons,
       worldX: this.worldX,
+      skills: this.skills.serialize(),
+      bestCombo: this.combo.bestCombo,
+      equipment: this.equipment.serialize(),
     };
   }
 
@@ -197,6 +231,9 @@ class Player {
     p.unlockedWeapons = data.unlockedWeapons;
     p.worldX = data.worldX || 140;
     p.x = p.worldX;
+    if (data.skills) p.skills = SkillManager.deserialize(data.skills);
+    if (data.bestCombo) p.combo.bestCombo = data.bestCombo;
+    if (data.equipment) p.equipment = EquipmentManager.deserialize(data.equipment);
     return p;
   }
 }

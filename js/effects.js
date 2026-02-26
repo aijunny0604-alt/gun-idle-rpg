@@ -375,3 +375,137 @@ class DirectionalSparks {
     ctx.restore();
   }
 }
+
+// Gold coin that flies toward the player
+class GoldCoin {
+  constructor(x, y, targetPlayer, amount) {
+    this.x = x;
+    this.y = y;
+    this.targetPlayer = targetPlayer;
+    this.amount = amount;
+    this.alive = true;
+    this.timer = 0;
+    this.phase = 'scatter'; // 'scatter' -> 'attract'
+    this.scatterTime = 15 + Math.random() * 10;
+    this.vx = (Math.random() - 0.5) * 6;
+    this.vy = -3 - Math.random() * 5;
+    this.gravity = 0.15;
+    this.size = 6;
+    this.sparkle = 0;
+    this.collected = false;
+  }
+
+  update() {
+    this.timer++;
+    this.sparkle += 0.3;
+
+    if (this.phase === 'scatter') {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vy += this.gravity;
+      this.vx *= 0.96;
+      if (this.timer > this.scatterTime) {
+        this.phase = 'attract';
+      }
+    } else {
+      // Attract to player
+      const tx = this.targetPlayer.worldX;
+      const ty = this.targetPlayer.y - 40;
+      const dx = tx - this.x;
+      const dy = ty - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const speed = 6 + (this.timer - this.scatterTime) * 0.5;
+      if (dist < 15) {
+        this.alive = false;
+        this.collected = true;
+        if (typeof soundManager !== 'undefined') soundManager.playCoin();
+      } else {
+        this.x += (dx / dist) * speed;
+        this.y += (dy / dist) * speed;
+      }
+    }
+
+    if (this.timer > 120) this.alive = false;
+  }
+
+  render(ctx) {
+    const alpha = this.timer > 100 ? (120 - this.timer) / 20 : 1;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // Coin shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(this.x, this.y + this.size + 2, this.size * 0.6, 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Coin body
+    const shimmer = Math.sin(this.sparkle) * 0.2 + 0.8;
+    ctx.fillStyle = `rgb(${Math.floor(255 * shimmer)}, ${Math.floor(215 * shimmer)}, 0)`;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Coin highlight
+    ctx.fillStyle = '#fff8';
+    ctx.beginPath();
+    ctx.arc(this.x - 2, this.y - 2, this.size * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // G text
+    ctx.fillStyle = '#8B6914';
+    ctx.font = `bold ${this.size + 2}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('G', this.x, this.y + 1);
+
+    ctx.restore();
+  }
+}
+
+// Explosion effect for explosive skill
+class Explosion {
+  constructor(x, y, radius) {
+    this.x = x;
+    this.y = y;
+    this.radius = radius;
+    this.maxRadius = radius;
+    this.timer = 16;
+    this.duration = 16;
+    this.alive = true;
+  }
+
+  update() {
+    this.timer--;
+    if (this.timer <= 0) this.alive = false;
+  }
+
+  render(ctx) {
+    const progress = 1 - this.timer / this.duration;
+    const r = this.maxRadius * (0.3 + progress * 0.7);
+    const alpha = 1 - progress;
+
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.6;
+
+    // Outer ring
+    ctx.strokeStyle = '#ff6600';
+    ctx.lineWidth = 3 * (1 - progress);
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner glow
+    ctx.globalAlpha = alpha * 0.3;
+    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+    grad.addColorStop(0, '#ffaa00');
+    grad.addColorStop(0.5, '#ff440088');
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}

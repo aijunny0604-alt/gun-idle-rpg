@@ -52,6 +52,7 @@ class StageManager {
     let type = 'normal';
     if (this.bossWave) {
       type = 'boss';
+      if (this.enemiesSpawned === 0) soundManager.playBossAppear();
     } else {
       const roll = Math.random();
       if (roll < 0.15 && this.stage >= 2) type = 'fast';

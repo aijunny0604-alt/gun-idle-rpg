@@ -25,6 +25,8 @@ class Game {
     this.stageManager = new StageManager();
     this.stageManager.calculateWave();
 
+    this.rebirthManager = new RebirthManager();
+
     this.ui = new UIManager();
     this.saveManager = new SaveManager();
 
@@ -45,7 +47,19 @@ class Game {
     this.bgReady = false;
     this.bgImage.onload = () => { this.bgReady = true; };
 
+    // Initialize sound on first interaction
+    this.soundInitialized = false;
+    const initSound = () => {
+      if (!this.soundInitialized) {
+        soundManager.ensureContext();
+        this.soundInitialized = true;
+      }
+    };
+    document.addEventListener('click', initSound, { once: false });
+    document.addEventListener('touchstart', initSound, { once: false });
+
     this.loadGame();
+    this.checkOfflineReward();
     this.ui.update(this);
     requestAnimationFrame((t) => this.loop(t));
   }
@@ -57,7 +71,30 @@ class Game {
       this.player = Player.deserialize(data.player);
       this.player.y = this.groundY;
       this.stageManager = StageManager.deserialize(data.stage);
+      if (data.rebirth) this.rebirthManager = RebirthManager.deserialize(data.rebirth);
       this.cameraX = Math.max(0, this.player.worldX - this.renderWidth * 0.25);
+    }
+  }
+
+  checkOfflineReward() {
+    const data = this.saveManager.load();
+    if (!data || !data.timestamp) return;
+    const elapsed = Date.now() - data.timestamp;
+    const minMs = 60000; // minimum 1 minute
+    if (elapsed < minMs) return;
+    const minutes = Math.floor(elapsed / 60000);
+    const hours = Math.floor(minutes / 60);
+    const goldPerMin = 5 + this.player.level * 2;
+    const reward = Math.floor(minutes * goldPerMin);
+    if (reward > 0) {
+      this.player.gold += reward;
+      const timeText = hours > 0 ? `${hours}시간 ${minutes % 60}분` : `${minutes}분`;
+      this.screenEffects.push(new FloatingText(
+        180, 250, `오프라인 보상!`, '#ffd740', 20, 120
+      ));
+      this.screenEffects.push(new FloatingText(
+        180, 280, `${timeText} 방치 → +${reward.toLocaleString()}G`, '#ffaa00', 14, 100
+      ));
     }
   }
 
@@ -110,10 +147,29 @@ class Game {
     for (const enemy of this.enemies) {
       enemy.update(dt, this.player);
       if (!enemy.alive) {
-        this.player.addExp(enemy.expReward);
-        this.player.gold += enemy.goldReward;
+        // Apply rebirth exp multiplier
+        const expMult = this.rebirthManager.permanentBonuses.expMultiplier;
+        this.player.addExp(Math.floor(enemy.expReward * expMult));
+        // Gold (rebirth multiplier already applied via combo system in bullet.js)
+        const goldMult = this.rebirthManager.permanentBonuses.goldMultiplier;
+        this.player.gold += Math.floor(enemy.goldReward * goldMult);
         this.player.totalKills++;
         this.stageManager.onEnemyKilled();
+
+        // Equipment drop check
+        const dropChance = EquipmentManager.dropChance(this.stageManager.stage);
+        if (Math.random() < dropChance) {
+          const item = EquipmentManager.generateItem(this.stageManager.stage);
+          this.player.equipment.addItem(item);
+          // Drop effect
+          const gradeInfo = EQUIP_GRADES[item.grade];
+          this.effects.push(new FloatingText(
+            enemy.x, enemy.y - enemy.height - 45,
+            `${item.icon} ${item.displayName}`,
+            gradeInfo.color, 13, 60
+          ));
+          this.screenEffects.push(new ScreenFlash(gradeInfo.color, 0.15, 4));
+        }
       }
     }
     this.enemies = this.enemies.filter(e => e.alive);
@@ -139,7 +195,7 @@ class Game {
     }
 
     if (this.player.hp <= 0) {
-      this.player.hp = this.player.maxHp;
+      this.player.hp = this.player.effectiveMaxHp;
       this.player.shield = this.player.maxShield;
       this.player.gold = Math.floor(this.player.gold * 0.8);
       this.enemies = [];
@@ -228,6 +284,9 @@ class Game {
     for (const effect of this.screenEffects) {
       effect.render(ctx);
     }
+
+    // Combo display
+    this.player.combo.render(ctx, W);
 
     // Stage transition overlay
     if (this.stageManager.stageComplete) {
